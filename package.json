@@ -1,0 +1,59 @@
+{
+  "name": "@ladbabynpm/picc-write",
+  "version": "0.1.0",
+  "description": "Claude Code style Write tool for pi — a faithful port of Claude Code's `Write` (create/update, read-first guard, structured diff).",
+  "type": "module",
+  "main": "index.ts",
+  "keywords": [
+    "pi",
+    "pi-package",
+    "pi-extension",
+    "write",
+    "file",
+    "claude-code"
+  ],
+  "license": "MIT",
+  "author": "ladbabynpm",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ladbaby/picc-write.git"
+  },
+  "homepage": "https://github.com/Ladbaby/picc-write",
+  "bugs": {
+    "url": "https://github.com/Ladbaby/picc-write/issues"
+  },
+  "files": [
+    "index.ts",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "dependencies": {
+    "diff": "^5.2.0"
+  },
+  "scripts": {
+    "lint": "biome check",
+    "lint:fix": "biome check --write",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.5",
+    "@types/diff": "^5.2.1",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
