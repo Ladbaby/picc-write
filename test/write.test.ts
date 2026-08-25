@@ -7,6 +7,7 @@ import {
 	getPatchFromContents,
 } from "../src/diff.js";
 import {
+	convertLeadingTabsToSpaces,
 	detectLineEndingsForString,
 	writeTextContent,
 } from "../src/file.js";
@@ -22,6 +23,7 @@ import {
 import {
 	readStateClear,
 	readStateSet,
+	shouldClearReadState,
 } from "../src/readState.js";
 import {
 	WriteGuardError,
@@ -47,6 +49,24 @@ describe("line endings", () => {
 	it("detects CRLF vs LF", () => {
 		expect(detectLineEndingsForString("a\r\nb\r\n")).toBe("CRLF");
 		expect(detectLineEndingsForString("a\nb\n")).toBe("LF");
+	});
+});
+
+describe("convertLeadingTabsToSpaces", () => {
+	it("converts leading tabs to two spaces and leaves others", () => {
+		expect(convertLeadingTabsToSpaces("\ta\n\t\tb\nc")).toBe(
+			"  a\n    b\nc",
+		);
+	});
+	it("returns the input unchanged when there are no tabs", () => {
+		expect(convertLeadingTabsToSpaces("a\nb")).toBe("a\nb");
+	});
+});
+
+describe("shouldClearReadState", () => {
+	it("clears only for interactive (has UI) sessions", () => {
+		expect(shouldClearReadState(true)).toBe(true);
+		expect(shouldClearReadState(false)).toBe(false);
 	});
 });
 
@@ -165,5 +185,37 @@ describe("writeOutcome", () => {
 		} catch (e) {
 			expect(e).toBeInstanceOf(WriteGuardError);
 		}
+	});
+
+	it("keeps a create's read-state across a headless (subagent) session start", async () => {
+		const file = join(cwd, "plan.md");
+		const created = await writeOutcome(
+			{ file_path: file, content: "v1" },
+			cwd,
+		);
+		expect(created.type).toBe("create");
+
+		// A subagent/headless session_start must NOT clear read-state
+		// (shouldClearReadState(false) === false), so a subsequent full
+		// rewrite of the plan file still satisfies the read-first guard.
+		expect(shouldClearReadState(false)).toBe(false);
+		const updated = await writeOutcome(
+			{ file_path: file, content: "v2\nv3" },
+			cwd,
+		);
+		expect(updated.type).toBe("update");
+		expect(updated.originalFile).toBe("v1");
+	});
+
+	it("fails the read-first guard when read-state IS cleared", async () => {
+		const file = join(cwd, "plan2.md");
+		await writeOutcome({ file_path: file, content: "v1" }, cwd);
+
+		// Simulating an interactive session reset clears read-state; a
+		// follow-up write then must be rejected until re-read.
+		readStateClear();
+		await expect(
+			writeOutcome({ file_path: file, content: "v2" }, cwd),
+		).rejects.toThrow(FILE_NOT_READ_ERROR);
 	});
 });

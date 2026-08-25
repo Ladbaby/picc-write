@@ -113,3 +113,13 @@ export function writeTextContent(
   }
   writeFileSync(filePath, toWrite, { encoding });
 }
+
+/**
+ * Convert leading tabs on each line to two spaces. Used only for the
+ * *display* patch — the written content is left untouched. Ported from
+ * picc-edit so the write result diff renders with consistent indentation.
+ */
+export function convertLeadingTabsToSpaces(content: string): string {
+  if (!content.includes("\t")) return content;
+  return content.replace(/^\t+/gm, (m) => "  ".repeat(m.length));
+}

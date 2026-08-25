@@ -28,3 +28,20 @@ export function readStateSet(filePath: string, entry: ReadEntry): void {
 export function readStateClear(): void {
   state.clear();
 }
+
+/**
+ * Whether a `session_start` should wipe the shared read-state.
+ *
+ * picc-write is loaded in **every** session — including in-process subagent /
+ * headless sessions, each of which fires its own `session_start`. Those must
+ * NOT clear the interactive session's read-state: Claude Code's `readFileState`
+ * is per-conversation and is inherited by subagents, never reset when one
+ * spawns. Only the real interactive session (UI present) resets it, which is
+ * the faithful "new conversation clears read-state" behavior.
+ *
+ * Headlessness is detected via `hasUI === false`, the same signal the
+ * permission-modes extension keys off.
+ */
+export function shouldClearReadState(hasUI: boolean): boolean {
+  return hasUI;
+}

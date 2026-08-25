@@ -37,12 +37,16 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type {
-	ExtensionAPI,
-	ExtensionContext,
+import {
+	type ExtensionAPI,
+	type ExtensionContext,
+	generateDiffString,
+	renderDiff,
 } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import {
+	convertLeadingTabsToSpaces,
 	getFileModificationTime,
 	readFileSyncWithMetadata,
 } from "./src/file.js";
@@ -56,9 +60,9 @@ import {
 	type ReadEntry,
 	readStateClear,
 	readStateSet,
+	shouldClearReadState,
 } from "./src/readState.js";
 import {
-	WriteGuardError,
 	type WriteInput,
 	type WriteOutcome,
 	writeOutcome,
@@ -174,9 +178,15 @@ function recordRead(input: Record<string, unknown>, cwd: string): void {
 export default function (pi: ExtensionAPI): void {
 	const toolName = loadToolName();
 
-	// Clear any stale read-state on a fresh/reloaded session.
-	pi.on("session_start", () => {
-		readStateClear();
+	// Clear any stale read-state on a fresh/reloaded *interactive* session.
+	// Subagent/headless sessions (hasUI === false) share this module's state
+	// in-process and fire their own session_start; clearing there would wipe
+	// the interactive session's read-state mid-conversation (the plan-mode
+	// "File has not been read yet" bug). See shouldClearReadState.
+	pi.on("session_start", (_event, ctx) => {
+		if (shouldClearReadState(ctx.hasUI)) {
+			readStateClear();
+		}
 	});
 
 	// Observe successful reads (any read tool) to feed the write guard.
@@ -194,6 +204,12 @@ export default function (pi: ExtensionAPI): void {
 		promptSnippet: "Create or overwrite files",
 		promptGuidelines: [],
 		parameters: WRITE_SCHEMA,
+		// Rely on the framework's default background shell (colored Box)
+		// rather than self-framing — the standard pending/success/error
+		// background is applied based on isError (see tool-execution).
+		// Overrides the built-in `write`, which we do NOT want to inherit
+		// its `renderCall`/`renderResult` (they always dump content).
+		renderShell: "default",
 		executionMode: "sequential",
 		async execute(
 			_toolCallId,
@@ -211,23 +227,79 @@ export default function (pi: ExtensionAPI): void {
 					outcome.type === "create"
 						? createSuccessMessage(outcome.filePath)
 						: updateSuccessMessage(outcome.filePath);
+				// Display-oriented, line-numbered diff in the exact format the
+				// built-in diff viewer (`renderDiff`) expects. Both sides are put in
+				// the same display space (leading tabs → 2 spaces) so the update
+				// diff does not balloon to the whole file. Lives only in `details`
+				// (TUI channel) — the model sees just `content`.
+				const { diff } =
+					outcome.originalFile !== null
+						? generateDiffString(
+								convertLeadingTabsToSpaces(outcome.originalFile),
+								outcome.content,
+							)
+						: { diff: "" };
 				return {
 					content: [{ type: "text", text: message }],
-					details: outcome,
+					details: { ...outcome, diff },
 				};
 			} catch (err) {
-				const message =
-					err instanceof WriteGuardError
-						? err.message
-						: err instanceof Error
-							? err.message
-							: String(err);
-				return {
-					content: [{ type: "text", text: message }],
-					isError: true,
-					details: { type: "error", path: input.file_path },
-				};
+				// pi's agent loop only flags a tool result as errored when
+				// execute() rejects — a resolved `{ isError: true }` is dropped
+				// (agent-loop returns `{ result, isError: false }` on resolve).
+				// Throw so the guard / validation / fs failure is surfaced as a
+				// real tool error (matching pi's built-in `write` and picc-edit).
+				throw err instanceof Error ? err : new Error(String(err));
 			}
+		},
+		renderCall(args, theme, context) {
+			const path =
+				typeof args.file_path === "string" ? args.file_path : "";
+			let text = theme.fg("toolTitle", theme.bold(`${toolName} `));
+			text += theme.fg("accent", path);
+			const t =
+				(context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+			t.setText(text);
+			return t;
+		},
+		renderResult(result, { isPartial }, theme, context) {
+			if (isPartial) {
+				return new Text(theme.fg("warning", "Writing..."), 0, 0);
+			}
+			const t =
+				(context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+			// On error, details is undefined. Show the error message in red.
+			if (context.isError) {
+				const errorMsg = result.content
+					.filter(
+						(c): c is { type: "text"; text: string } => c.type === "text",
+					)
+					.map((c) => c.text)
+					.join("\n");
+				t.setText(theme.fg("error", errorMsg || "Write failed"));
+				return t;
+			}
+			const details = result.details as
+				| (WriteOutcome & { diff?: string })
+				| undefined;
+			// Summary line + diff for updates; a plain success message for
+			// creates (no original to diff against). Mirrors picc-edit.
+			if (details?.diff) {
+				t.setText(
+					"\n" +
+						theme.fg("success", updateSuccessMessage(details.filePath)) +
+						"\n" +
+						renderDiff(details.diff),
+				);
+			} else {
+				t.setText(
+					theme.fg(
+						"success",
+						details ? createSuccessMessage(details.filePath) : "Written",
+					),
+				);
+			}
+			return t;
 		},
 	});
 }
