@@ -21,6 +21,7 @@ import {
 	updateSuccessMessage,
 } from "../src/prompt.js";
 import {
+	fileStateToolName,
 	readStateClear,
 	readStateSet,
 	shouldClearReadState,
@@ -67,6 +68,23 @@ describe("shouldClearReadState", () => {
 	it("clears only for interactive (has UI) sessions", () => {
 		expect(shouldClearReadState(true)).toBe(true);
 		expect(shouldClearReadState(false)).toBe(false);
+	});
+});
+
+describe("fileStateToolName", () => {
+	it("treats read/write/edit (both cases) as file-state tools", () => {
+		expect(fileStateToolName("read")).toBe(true);
+		expect(fileStateToolName("Read")).toBe(true);
+		expect(fileStateToolName("write")).toBe(true);
+		expect(fileStateToolName("Write")).toBe(true);
+		expect(fileStateToolName("edit")).toBe(true);
+		expect(fileStateToolName("Edit")).toBe(true);
+	});
+
+	it("rejects unrelated tool names", () => {
+		expect(fileStateToolName("bash")).toBe(false);
+		expect(fileStateToolName("grep")).toBe(false);
+		expect(fileStateToolName("")).toBe(false);
 	});
 });
 
@@ -142,6 +160,28 @@ describe("writeOutcome", () => {
 		await expect(
 			writeOutcome({ file_path: file, content: "new" }, cwd),
 		).rejects.toThrow(FILE_NOT_READ_ERROR);
+	});
+
+	it("allows writing a file the agent just edited (no re-read needed)", async () => {
+		// Simulates the edit→write flow: an `edit` result seeds read-state with a
+		// fresh full-read entry (what recordRead now does for read/write/edit),
+		// so the follow-up write must NOT throw FILE_NOT_READ_ERROR — matching
+		// Claude Code, where FileEditTool refreshes the shared `readFileState`.
+		const file = join(cwd, "edited.txt");
+		await writeFile(file, "one\ntwo\nthree");
+		readStateSet(file, {
+			content: "one\ntwo\nthree",
+			timestamp: Math.floor((await stat(file)).mtimeMs),
+			offset: undefined,
+			limit: undefined,
+		});
+		const outcome = await writeOutcome(
+			{ file_path: file, content: "one\nTWO\nthree" },
+			cwd,
+		);
+		expect(outcome.type).toBe("update");
+		expect(outcome.originalFile).toBe("one\ntwo\nthree");
+		expect(await readFile(file, "utf8")).toBe("one\nTWO\nthree");
 	});
 
 	it("updates a file that was read", async () => {

@@ -10,7 +10,9 @@
  *   - Input is `file_path` (absolute) + `content` (not `path`).
  *   - Enforces Claude Code's read-first guard: an existing file must have been
  *     read this session, and must not have been modified since that read.
- *     Read-state is tracked from `tool_result` events (any read tool).
+ *     Read-state is tracked from `tool_result` events for any file tool that
+ *     establishes known contents (read/write/edit) — mirroring Claude Code,
+ *     where a file the agent just wrote or edited is immediately writable.
  *   - Distinguishes create vs update and returns a structured patch +
  *     `originalFile` in `details`, with faithful success messages.
  *   - Writes with explicit LF handling (the model's sent line endings are
@@ -57,6 +59,7 @@ import {
 	updateSuccessMessage,
 } from "./src/prompt.js";
 import {
+	fileStateToolName,
 	type ReadEntry,
 	readStateClear,
 	readStateSet,
@@ -74,6 +77,13 @@ import {
 
 const VALID_TOOL_NAMES = ["write", "Write"] as const;
 type ToolName = (typeof VALID_TOOL_NAMES)[number];
+
+// Max lines of a newly written file rendered in the TUI create preview.
+// Mirrors Claude Code's `MAX_LINES_TO_RENDER` (tools/FileWriteTool/UI.tsx) —
+// in non-verbose mode the file contents are capped and a "… +N lines" footer
+// is shown. pi's renderResult has no verbose/expand flag, so this is always
+// applied.
+const MAX_LINES_TO_RENDER = 10;
 
 function resolveConfigPath(): string {
 	const env = process.env.PICC_WRITE_CONFIG_PATH;
@@ -140,7 +150,7 @@ const WRITE_SCHEMA = Type.Object({
 });
 
 // ============================================================================
-// Read-state tracking (populates the write guard across read tools)
+// Read-state tracking (populates the write guard across file tools)
 // ============================================================================
 
 function recordRead(input: Record<string, unknown>, cwd: string): void {
@@ -172,6 +182,66 @@ function recordRead(input: Record<string, unknown>, cwd: string): void {
 }
 
 // ============================================================================
+// Create preview (TUI channel) — Claude Code's `FileWriteToolCreatedMessage`
+// ============================================================================
+
+/**
+ * Build the TUI render for a NEW file (the `create` branch). Claude Code's
+ * `renderToolResultMessage` shows, for a create, a "Wrote N lines to <path>"
+ * header followed by a preview of the file contents capped at
+ * `MAX_LINES_TO_RENDER` lines and a dim "… +M lines" footer when truncated
+ * (see `tools/FileWriteTool/UI.tsx`). pi's `renderResult` has no `verbose` /
+ * Ctrl-O-expand affordance, so we always render the truncated preview.
+ *
+ * `details.content` holds the written content and `details.numLinesAdded` the
+ * line count (both already populated by `writeOutcome`).
+ */
+function createPreviewText(
+	details: { filePath: string; content: string },
+	theme: {
+		fg: (c: "toolTitle" | "accent" | "muted" | "dim", t: string) => string;
+		bold: (t: string) => string;
+	},
+): string {
+	const lines = details.content.split("\n");
+	const total = lines.length;
+	const shown = lines.slice(0, MAX_LINES_TO_RENDER);
+	const remaining = total - MAX_LINES_TO_RENDER;
+
+	// Faded header (bold kept on count + path).
+	const header =
+		"Wrote " +
+		theme.bold(String(total)) +
+		" " +
+		(total === 1 ? "line" : "lines")
+        // WARNING: although is it more faithful to include the following contents to match Claude Code, we choose to omit them, since the tool result block's header already includes the file path
+		// " to " +
+		// theme.fg("accent", theme.bold(details.filePath));
+
+	// Line numbers, right-aligned to the shown line count's width, dimmed to
+	// recede further than the muted header. Content stays the default (bright)
+	// text color.
+	const width = String(shown.length).length;
+	const body = shown
+		.map((line, i) =>
+			theme.fg("dim", String(i + 1).padStart(width)) + " " + line.replace(/\t/g, "  "),
+		)
+		.join("\n");
+
+	const footer =
+		remaining > 0
+			? "\n" + theme.fg("muted", `… +${remaining} line${remaining === 1 ? "" : "s"}`)
+			: "";
+
+	return (
+		theme.fg("muted", header) +
+		"\n" +
+		body +
+		footer
+	);
+}
+
+// ============================================================================
 // Extension entry point
 // ============================================================================
 
@@ -189,10 +259,13 @@ export default function (pi: ExtensionAPI): void {
 		}
 	});
 
-	// Observe successful reads (any read tool) to feed the write guard.
-	// `tool_result` events carry no cwd of their own; use the process cwd.
+	// Observe successful file tools (read/write/edit) to feed the write guard.
+	// Claude Code refreshes its shared `readFileState` from all three, so a file
+	// the agent just wrote or edited is immediately writable without a redundant
+	// re-read. `tool_result` events carry no cwd of their own; use the process
+	// cwd.
 	pi.on("tool_result", (event) => {
-		if (event.toolName !== "read" && event.toolName !== "Read") return;
+		if (!fileStateToolName(event.toolName)) return;
 		if (event.isError) return;
 		recordRead(event.input, process.cwd());
 	});
@@ -282,8 +355,9 @@ export default function (pi: ExtensionAPI): void {
 			const details = result.details as
 				| (WriteOutcome & { diff?: string })
 				| undefined;
-			// Summary line + diff for updates; a plain success message for
-			// creates (no original to diff against). Mirrors picc-edit.
+			// Updates render a summary line + diff. Creates render a "Wrote N
+			// lines" header + a capped preview of the written content (see
+			// createPreviewText) — mirroring Claude Code's create branch.
 			if (details?.diff) {
 				t.setText(
 					"\n" +
@@ -291,13 +365,10 @@ export default function (pi: ExtensionAPI): void {
 						"\n" +
 						renderDiff(details.diff),
 				);
+			} else if (details) {
+				t.setText(createPreviewText(details, theme));
 			} else {
-				t.setText(
-					theme.fg(
-						"success",
-						details ? createSuccessMessage(details.filePath) : "Written",
-					),
-				);
+				t.setText(theme.fg("success", "Written"));
 			}
 			return t;
 		},
