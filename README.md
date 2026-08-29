@@ -1,6 +1,6 @@
 # picc-write
 
-Claude Code-style **Write** tool for [pi](https://pi.dev) — a faithful port of Claude Code's `Write` tool, overriding pi's built-in `write`.
+Claude Code style **Write** tool for [pi](https://pi.dev) — a faithful port of Claude Code's `Write` tool, overriding pi's built-in `write`.
 
 Part of [picc](https://github.com/Ladbaby/picc), a pi agent setup mirroring Claude Code's harness.
 
@@ -53,8 +53,3 @@ npm run lint        # biome check
 npm run typecheck   # tsc --noEmit
 npm run test        # vitest run
 ```
-
-## References
-
-- Claude Code Write tool: `tools/FileWriteTool/FileWriteTool.ts` (+ `prompt.ts`, `UI.tsx`)
-- Claude Code helpers: `utils/file.ts`, `utils/fileRead.ts`, `utils/diff.ts`, `utils/path.ts`

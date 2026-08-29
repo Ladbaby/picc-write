@@ -1,10 +1,8 @@
 /**
  * picc-write: Claude Code-style Write tool for pi.
  *
- * A faithful port of Claude Code's `Write` tool
- * (`tools/FileWriteTool/FileWriteTool.ts`), registering a tool named
- * `write`/`Write` that **overrides pi's built-in `write`** tool (same-name,
- * last-write-wins — see `core/tools/index.js`).
+ * A faithful port of Claude Code's `Write` tool, registering a tool named
+ * `write`/`Write` that **overrides pi's built-in `write`** tool.
  *
  * Differences from pi's built-in `write`:
  *   - Input is `file_path` (absolute) + `content` (not `path`).
@@ -30,10 +28,6 @@
  *   - Set `config.json` `toolName` to `"Write"` (default location
  *     `~/.pi/agent/extensions/picc-write/config.json`), or set
  *     `PICC_WRITE_TOOL_NAME=Write`. Valid values: `"write"`, `"Write"`.
- *
- * References:
- * - Claude Code Write tool: tools/FileWriteTool/FileWriteTool.ts (+ prompt.ts, UI.tsx)
- * - Claude Code helpers: utils/file.ts, utils/fileRead.ts, utils/diff.ts, utils/path.ts
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -79,10 +73,6 @@ const VALID_TOOL_NAMES = ["write", "Write"] as const;
 type ToolName = (typeof VALID_TOOL_NAMES)[number];
 
 // Max lines of a newly written file rendered in the TUI create preview.
-// Mirrors Claude Code's `MAX_LINES_TO_RENDER` (tools/FileWriteTool/UI.tsx) —
-// in non-verbose mode the file contents are capped and a "… +N lines" footer
-// is shown. pi's renderResult has no verbose/expand flag, so this is always
-// applied.
 const MAX_LINES_TO_RENDER = 10;
 
 function resolveConfigPath(): string {
