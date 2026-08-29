@@ -1,5 +1,7 @@
 # picc-write
 
+[![npm downloads](https://img.shields.io/npm/dt/@ladbabynpm/picc-write.svg)](https://www.npmjs.com/package/@ladbabynpm/picc-write)
+
 Claude Code style **Write** tool for [pi](https://pi.dev) — a faithful port of Claude Code's `Write` tool, overriding pi's built-in `write`.
 
 Part of [picc](https://github.com/Ladbaby/picc), a pi agent setup mirroring Claude Code's harness.
