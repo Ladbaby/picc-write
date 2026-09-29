@@ -37,7 +37,6 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 	generateDiffString,
-	renderDiff,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -52,13 +51,8 @@ import {
 	PROMPT,
 	updateSuccessMessage,
 } from "./src/prompt.js";
-import {
-	fileStateToolName,
-	type ReadEntry,
-	readStateClear,
-	readStateSet,
-	shouldClearReadState,
-} from "./src/readState.js";
+import { fileStateToolName, type ReadEntry, readStateClear, readStateSet, shouldClearReadState } from "./src/readState.js";
+import { renderDiff } from "./src/renderDiff.js";
 import {
 	type WriteInput,
 	type WriteOutcome,
@@ -195,7 +189,12 @@ function createPreviewText(
 ): string {
 	const lines = details.content.split("\n");
 	const total = lines.length;
-	const shown = lines.slice(0, MAX_LINES_TO_RENDER);
+	// Match Claude Code's create preview: an empty file still has its normal
+	// line-count header, but its code pane explicitly says it has no content.
+	const shown = (details.content ? lines : ["(No content)"]).slice(
+		0,
+		MAX_LINES_TO_RENDER,
+	);
 	const remaining = total - MAX_LINES_TO_RENDER;
 
 	// Faded header (bold kept on count + path).
@@ -229,6 +228,24 @@ function createPreviewText(
 		body +
 		footer
 	);
+}
+
+function formatUpdateSummary(
+	details: Pick<WriteOutcome, "numLinesAdded" | "numLinesRemoved">,
+	theme: { bold: (text: string) => string },
+): string {
+	const summaryParts: string[] = [];
+	if (details.numLinesAdded > 0) {
+		summaryParts.push(
+			`Added ${theme.bold(String(details.numLinesAdded))} line${details.numLinesAdded === 1 ? "" : "s"}`,
+		);
+	}
+	if (details.numLinesRemoved > 0) {
+		summaryParts.push(
+			`${details.numLinesAdded > 0 ? "removed" : "Removed"} ${theme.bold(String(details.numLinesRemoved))} line${details.numLinesRemoved === 1 ? "" : "s"}`,
+		);
+	}
+	return summaryParts.length > 0 ? summaryParts.join(", ") : "Written";
 }
 
 // ============================================================================
@@ -349,12 +366,8 @@ export default function (pi: ExtensionAPI): void {
 			// lines" header + a capped preview of the written content (see
 			// createPreviewText) — mirroring Claude Code's create branch.
 			if (details?.diff) {
-				t.setText(
-					"\n" +
-						theme.fg("success", updateSuccessMessage(details.filePath)) +
-						"\n" +
-						renderDiff(details.diff),
-				);
+				const summary = formatUpdateSummary(details, theme);
+				t.setText(theme.fg("muted", summary) + renderDiff(details.diff, theme));
 			} else if (details) {
 				t.setText(createPreviewText(details, theme));
 			} else {

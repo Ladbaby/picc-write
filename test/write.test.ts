@@ -26,6 +26,7 @@ import {
 	readStateSet,
 	shouldClearReadState,
 } from "../src/readState.js";
+import { renderDiff } from "../src/renderDiff.js";
 import {
 	WriteGuardError,
 	writeOutcome,
@@ -113,6 +114,20 @@ describe("diff", () => {
 		const { added, removed } = countLinesChanged([], "x\ny\nz");
 		expect(added).toBe(3);
 		expect(removed).toBe(0);
+	});
+});
+
+describe("renderDiff", () => {
+	const theme = {
+		fg: (_color: "toolDiffRemoved" | "toolDiffContext", text: string) => text,
+		inverse: (text: string) => text,
+	};
+
+	it("uses the edit-style compact layout without a leading newline", () => {
+		const rendered = renderDiff(" 1 - before\n 1 + after", theme);
+		expect(rendered).toContain(" 1 - before\n");
+		expect(rendered).toContain(" 1 + after");
+		expect(rendered.startsWith("\n")).toBe(false);
 	});
 });
 
