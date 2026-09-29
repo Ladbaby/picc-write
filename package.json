@@ -1,6 +1,6 @@
 {
   "name": "@ladbabynpm/picc-write",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Claude Code style Write tool for pi — a faithful port of Claude Code's `Write` (create/update, read-first guard, structured diff).",
   "type": "module",
   "main": "index.ts",
